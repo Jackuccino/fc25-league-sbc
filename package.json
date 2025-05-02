@@ -1,0 +1,17 @@
+{
+  "name": "unlimited-coins-and-packs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@wdio/cli": "^8.28.6",
+    "dotenv": "^16.3.1",
+    "otplib": "^12.0.1",
+    "webdriverio": "^8.28.6"
+  }
+}
