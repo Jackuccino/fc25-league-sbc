@@ -186,13 +186,21 @@ const signIntoEnhancer = async (browser) => {
       await enhancerBtn.waitForExist({ timeout: TIMEOUTS.STANDARD_WAIT });
     } catch (e) {
       console.log("Enhancer sign-in button not found - already signed in");
-      await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+      await browser.pause(TIMEOUTS.QUICK_WAIT);
       return;
     }
 
     const isVisible = await enhancerBtn.isDisplayed();
     if (!isVisible) {
       console.log("Enhancer already signed in");
+      await browser.pause(TIMEOUTS.QUICK_WAIT);
+      return;
+    }
+
+    // Check button text to determine if we need to sign in or if already signed in
+    const buttonText = await enhancerBtn.getText();
+    if (buttonText && buttonText.toLowerCase().includes("sign out")) {
+      console.log("Enhancer already signed in (Sign Out button detected)");
       await browser.pause(TIMEOUTS.MEDIUM_WAIT);
       return;
     }
@@ -946,7 +954,7 @@ const handleFailedSBCSubmission = async (browser, sbcName, type, attempt) => {
             // Dismiss any Feedback modal that appears after refresh
             console.log("Checking for Feedback modal after refresh...");
             await dismissFeedbackModal(browser);
-            await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+            await browser.pause(TIMEOUTS.QUICK_WAIT);
           }
 
           console.log("Iteration complete!");
@@ -1019,6 +1027,6 @@ const completeConceptSquad = async (browser, sbcName, type = "league") => {
   await attemptSBCSubmission(browser, sbcName, type);
 
   // Wait for submission to complete and any post-submission screens
-  await browser.pause(TIMEOUTS.LONG_WAIT);
+  await browser.pause(TIMEOUTS.QUICK_WAIT);
   console.log("SBC submission completed");
 };
