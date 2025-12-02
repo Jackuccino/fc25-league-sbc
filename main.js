@@ -416,74 +416,87 @@ const attemptSBCSubmission = async (browser, sbcName, type, maxAttempts = 50, su
         await handleFailedSBCSubmission(browser, sbcName, type, submitAttempts);
       } catch (recoveryError) {
         console.log(`Recovery attempt ${submitAttempts} failed: ${recoveryError.message}`);
-        console.log("Attempting to navigate back and restart challenge...");
+        console.log("Refreshing page to restart from home...");
 
-        // Try to navigate back to SBC overview and re-enter the challenge
+        // Refresh the page to get back to a clean state
         try {
-          // Close any modals first
-          await browser.keys("Escape");
+          await browser.refresh();
+          await browser.pause(TIMEOUTS.LONG_WAIT);
+
+          // Wait for loading screens after refresh
+          console.log("Waiting for page to load after refresh...");
+          await waitForLoadingShield(browser, TIMEOUTS.EXTENDED_LOADING);
+          console.log("Page loaded!");
+          await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+
+          // Check for and dismiss "Reading player data" screen
+          try {
+            console.log("Checking for 'Reading player data' screen...");
+            const readingPlayerData = await browser.$('//*[contains(text(), "Reading player data")]');
+            if ((await readingPlayerData.isExisting()) && (await readingPlayerData.isDisplayed())) {
+              console.log("'Reading player data' screen found, clicking to dismiss...");
+              await readingPlayerData.click();
+              await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+            }
+          } catch (e) {
+            console.log("No 'Reading player data' screen found");
+          }
+
+          // Sign into Enhancer again after refresh
+          console.log("Signing into Enhancer after refresh...");
+          await signIntoEnhancer(browser);
+
+          // Dismiss any Feedback modal that appears after refresh
+          console.log("Checking for Feedback modal after refresh...");
+          await dismissFeedbackModal(browser);
           await browser.pause(TIMEOUTS.QUICK_WAIT);
+
+          // Navigate to SBC tab
+          console.log("Navigating to SBC tab...");
+          await btnClick(browser, "/html/body/main/section/nav/button[6]", TIMEOUTS.DEFAULT_CLICK);
+          await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+          await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
           await dismissFeedbackModal(browser);
 
-          // Click back button multiple times if needed to get to SBC overview
-          for (let i = 0; i < 3; i++) {
-            const backBtn = await browser.$("button.ut-navigation-button-control");
-            if ((await backBtn.isExisting()) && (await backBtn.isDisplayed())) {
-              await backBtn.click();
-              console.log(`Clicked back button (attempt ${i + 1})`);
-              await browser.pause(1500);
+          // Click favorite tab
+          console.log("Clicking favorite tab...");
+          await btnClick(browser, "/html/body/main/section/section/div[2]/div/div[1]/div/button[2]");
+          await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+          await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
 
-              // Check if we're at the right screen
-              const challengeHeader = await browser.$(`//h1[text()="${sbcName}"]`);
-              if ((await challengeHeader.isExisting()) && (await challengeHeader.isDisplayed())) {
-                console.log("Found challenge header, attempting to re-enter...");
-                break;
-              }
-            } else {
-              break;
-            }
-          }
+          // Navigate to the SBC set
+          const sbcSetName = type === "upgrade" ? "80+ Double Upgrade" : "Premium Mixed Leagues Upgrade";
+          console.log(`Selecting '${sbcSetName}' SBC...`);
+          await btnClick(browser, `//h1[text()="${sbcSetName}"]`);
+          await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+          await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
 
-          await browser.pause(TIMEOUTS.QUICK_WAIT);
+          // Click the specific challenge
+          console.log(`Re-entering challenge: ${sbcName}...`);
+          const challengeBtn = await browser.$(`//h1[text()="${sbcName}"]`);
+          await challengeBtn.waitForExist({ timeout: TIMEOUTS.STANDARD_WAIT });
 
-          // Try to click the challenge to re-enter
-          const challengeSelectors = [`//h1[text()="${sbcName}"]`, `//button[contains(text(), "${sbcName}")]`, `//div[contains(@class, 'sbc-challenge')]//h1[contains(text(), "${sbcName.split(" ")[0]}")]`];
+          if ((await challengeBtn.isExisting()) && (await challengeBtn.isDisplayed())) {
+            await challengeBtn.click();
+            await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+            await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
 
-          let challengeClicked = false;
-          for (const selector of challengeSelectors) {
-            try {
-              const challengeBtn = await browser.$(selector);
-              if ((await challengeBtn.isExisting()) && (await challengeBtn.isDisplayed())) {
-                await challengeBtn.click();
-                console.log(`Re-entered challenge using selector: ${selector}`);
-                challengeClicked = true;
-                await browser.pause(TIMEOUTS.MEDIUM_WAIT);
-                break;
-              }
-            } catch (e) {
-              console.log(`Challenge selector ${selector} failed`);
-            }
-          }
-
-          if (challengeClicked) {
-            // Now look for Start Challenge or Go to Challenge
-            const startBtn = await browser.$('//button[text()="Start Challenge"]');
+            // Click "Go to Challenge" button if it exists
             const goToBtn = await browser.$('//button[text()="Go to Challenge"]');
-
-            if ((await startBtn.isExisting()) && (await startBtn.isDisplayed())) {
-              console.log("Starting challenge fresh...");
-              await safeBtnClick(browser, '//button[text()="Start Challenge"]');
-              await browser.pause(TIMEOUTS.MEDIUM_WAIT);
-            } else if ((await goToBtn.isExisting()) && (await goToBtn.isDisplayed())) {
+            if ((await goToBtn.isExisting()) && (await goToBtn.isDisplayed())) {
               console.log("Going to challenge...");
-              await safeBtnClick(browser, '//button[text()="Go to Challenge"]');
+              await goToBtn.click();
               await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+              await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
             }
           } else {
-            console.log("Could not re-enter challenge, will retry from current state...");
+            throw new Error(`Challenge button not found for: ${sbcName}`);
           }
+
+          console.log("Successfully reset and navigated back to challenge");
         } catch (restartError) {
-          console.log("Failed to restart challenge:", restartError.message);
+          console.log("Failed to restart from home:", restartError.message);
+          throw new Error("Could not recover by refreshing to home page");
         }
       }
     }
@@ -511,48 +524,142 @@ const handleFailedSBCSubmission = async (browser, sbcName, type, attempt) => {
     await safeBtnClick(browser, SELECTORS.CANCEL_BTN, TIMEOUTS.LONG_WAIT);
   }
 
-  // Step 1: Click "SBC squad autofill" button
-  console.log(`Attempt ${attempt}: Clicking SBC squad autofill button...`);
-  const autofillClicked = await clickButtonWithSelectors(browser, BUTTON_SELECTORS.AUTOFILL, "autofill button");
-  if (autofillClicked) await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+  // Check which autofill method to use based on MAINEMAIL
+  const useAlternativeMethod = process.env.MAINEMAIL === "huiping.liu@hotmail.com";
 
-  // Step 2: Click OK button in the modal
-  console.log(`Attempt ${attempt}: Clicking OK button...`);
-  const okClicked = await clickButtonWithSelectors(browser, BUTTON_SELECTORS.OK_BUTTON, "OK button");
-  if (okClicked) await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+  if (useAlternativeMethod) {
+    console.log(`Attempt ${attempt}: Using alternative autofill method (dropdown selection)...`);
 
-  // Step 3: Wait for "Buy concept players in bulk" button to appear and click it
-  console.log(`Attempt ${attempt}: Waiting for 'Buy concept players in bulk' button...`);
+    // Step 1: Click the "Cheap FUTNext Solutions" dropdown
+    console.log("Step 1: Clicking Cheap FUTNext Solutions dropdown...");
+    await safeBtnClick(browser, "/html/body/main/section/section/div[2]/div/div/section/div/section/div/div[3]/div[2]/div/div");
+    await browser.pause(TIMEOUTS.QUICK_WAIT);
 
-  try {
-    await browser.waitUntil(
-      async () => {
-        const buyBtn = await browser.$("//button[contains(text(), 'Buy concept players in bulk')]");
-        return (await buyBtn.isExisting()) && (await buyBtn.isDisplayed());
-      },
-      {
-        timeout: TIMEOUTS.STANDARD_WAIT * 2, // 20 seconds
-        timeoutMsg: "Buy concept players in bulk button did not appear",
-        interval: 1000,
-      }
-    );
+    // Step 2: Wait for loading screen
+    console.log("Step 2: Waiting for dropdown loading screen...");
+    await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
+    await browser.pause(TIMEOUTS.QUICK_WAIT);
 
-    console.log("'Buy concept players in bulk' button appeared, clicking...");
-    await btnClick(browser, "//button[contains(text(), 'Buy concept players in bulk')]", TIMEOUTS.LONG_WAIT);
-    console.log("Clicked 'Buy concept players in bulk' button");
+    // Step 3: Calculate the index for the dropdown option
+    // Formula: cycles through options 2, 3, 4, then repeats (li[2], li[3], li[4])
+    const optionIndex = ((attempt - 1) % 3) + 2;
+    console.log(`Step 3: Calculated option index: ${optionIndex} for attempt ${attempt}`);
+
+    // Step 4: Click the calculated option in the dropdown
+    console.log(`Step 4: Clicking dropdown option ${optionIndex}...`);
+    await safeBtnClick(browser, `/html/body/main/section/section/div[2]/div/div/section/div/section/div/div[3]/div[2]/div/div/ul/li[${optionIndex}]`, TIMEOUTS.DEFAULT_CLICK);
     await browser.pause(TIMEOUTS.MEDIUM_WAIT);
-  } catch (e) {
-    console.log("'Buy concept players in bulk' button not found - autofill may have failed");
-    console.log("Checking if we're on squad builder to try manual approach...");
 
-    // Check if we're back on squad builder (Generate Solution button exists)
-    const generateBtn = await browser.$(SELECTORS.GENERATE_SOLUTION_BTN);
-    if ((await generateBtn.isExisting()) && (await generateBtn.isDisplayed())) {
-      console.log("On squad builder, skipping to rating input flow...");
-      await performRatingInputFlow(browser);
-      return; // Exit the recovery function early
-    } else {
-      console.log("Not on squad builder either, continuing with recovery flow...");
+    // Step 5: Back out by pressing Backspace
+    console.log("Step 5: Pressing Backspace to exit challenge...");
+    await browser.keys("Backspace");
+    await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+
+    // Wait for loading screen after backing out
+    await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
+    await browser.pause(TIMEOUTS.QUICK_WAIT);
+
+    // Step 6: Go back into the challenge
+    console.log(`Step 6: Re-entering challenge: ${sbcName}...`);
+    const challengeHeader = await browser.$(`//h1[text()="${sbcName}"]`);
+    await challengeHeader.waitForExist({ timeout: TIMEOUTS.STANDARD_WAIT });
+    await challengeHeader.waitForClickable({ timeout: TIMEOUTS.STANDARD_WAIT });
+    await challengeHeader.click();
+    console.log(`Successfully clicked on challenge: ${sbcName}`);
+    await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+
+    // Wait for loading after clicking challenge
+    await waitForLoadingShield(browser, TIMEOUTS.LOADING_SCREEN);
+
+    if (type === "league") {
+      console.log("Clicking 'Go to Challenge' button...");
+      const goToBtn = await browser.$('//button[text()="Go to Challenge"]');
+      await goToBtn.waitForExist({ timeout: TIMEOUTS.STANDARD_WAIT });
+      await goToBtn.waitForClickable({ timeout: TIMEOUTS.STANDARD_WAIT });
+      await goToBtn.click();
+      console.log("Successfully clicked 'Go to Challenge' button");
+      await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+    }
+
+    // Step 7: Wait for and click "Buy concept players in bulk" button
+    console.log(`Attempt ${attempt}: Waiting for 'Buy concept players in bulk' button...`);
+    try {
+      await browser.waitUntil(
+        async () => {
+          const buyBtn = await browser.$("//button[contains(text(), 'Buy concept players in bulk')]");
+          return (await buyBtn.isExisting()) && (await buyBtn.isDisplayed());
+        },
+        {
+          timeout: TIMEOUTS.STANDARD_WAIT * 2,
+          timeoutMsg: "Buy concept players in bulk button did not appear",
+          interval: 1000,
+        }
+      );
+
+      console.log("'Buy concept players in bulk' button appeared, clicking...");
+      await btnClick(browser, "//button[contains(text(), 'Buy concept players in bulk')]", TIMEOUTS.LONG_WAIT);
+      console.log("Clicked 'Buy concept players in bulk' button");
+      await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+    } catch (e) {
+      console.log("'Buy concept players in bulk' button not found - autofill may have failed");
+      console.log("Checking if we're on squad builder to try manual approach...");
+
+      // Check if we're back on squad builder (Generate Solution button exists)
+      const generateBtn = await browser.$(SELECTORS.GENERATE_SOLUTION_BTN);
+      if ((await generateBtn.isExisting()) && (await generateBtn.isDisplayed())) {
+        console.log("On squad builder, skipping to rating input flow...");
+        await performRatingInputFlow(browser);
+        return;
+      } else {
+        console.log("Not on squad builder either, continuing with recovery flow...");
+      }
+    }
+  } else {
+    console.log(`Attempt ${attempt}: Using standard autofill method...`);
+
+    // Step 1: Click "SBC squad autofill" button
+    console.log(`Attempt ${attempt}: Clicking SBC squad autofill button...`);
+    const autofillClicked = await clickButtonWithSelectors(browser, BUTTON_SELECTORS.AUTOFILL, "autofill button");
+    if (autofillClicked) await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+
+    // Step 2: Click OK button in the modal
+    console.log(`Attempt ${attempt}: Clicking OK button...`);
+    const okClicked = await clickButtonWithSelectors(browser, BUTTON_SELECTORS.OK_BUTTON, "OK button");
+    if (okClicked) await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+
+    // Step 3: Wait for "Buy concept players in bulk" button to appear and click it
+    console.log(`Attempt ${attempt}: Waiting for 'Buy concept players in bulk' button...`);
+
+    try {
+      await browser.waitUntil(
+        async () => {
+          const buyBtn = await browser.$("//button[contains(text(), 'Buy concept players in bulk')]");
+          return (await buyBtn.isExisting()) && (await buyBtn.isDisplayed());
+        },
+        {
+          timeout: TIMEOUTS.STANDARD_WAIT * 2, // 20 seconds
+          timeoutMsg: "Buy concept players in bulk button did not appear",
+          interval: 1000,
+        }
+      );
+
+      console.log("'Buy concept players in bulk' button appeared, clicking...");
+      await btnClick(browser, "//button[contains(text(), 'Buy concept players in bulk')]", TIMEOUTS.LONG_WAIT);
+      console.log("Clicked 'Buy concept players in bulk' button");
+      await browser.pause(TIMEOUTS.MEDIUM_WAIT);
+    } catch (e) {
+      console.log("'Buy concept players in bulk' button not found - autofill may have failed");
+      console.log("Checking if we're on squad builder to try manual approach...");
+
+      // Check if we're back on squad builder (Generate Solution button exists)
+      const generateBtn = await browser.$(SELECTORS.GENERATE_SOLUTION_BTN);
+      if ((await generateBtn.isExisting()) && (await generateBtn.isDisplayed())) {
+        console.log("On squad builder, skipping to rating input flow...");
+        await performRatingInputFlow(browser);
+        return; // Exit the recovery function early
+      } else {
+        console.log("Not on squad builder either, continuing with recovery flow...");
+      }
     }
   }
 
